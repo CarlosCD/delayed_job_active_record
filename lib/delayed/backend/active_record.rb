@@ -55,8 +55,8 @@ module Delayed
 
         def self.reserve_with_scope(ready_scope, worker, now)
           # Optimizations for faster lookups on some common databases
-          case connection.adapter_name
-          when "PostgreSQL"
+          case
+          when self.connection.adapter_name == 'PostgreSQL' && self.connection.send(:postgresql_version) >= 90100  # PostgreSQL 9.1.0 or above
             # Custom SQL required for PostgreSQL because postgres does not support UPDATE...LIMIT
             # This locks the single record 'FOR UPDATE' in the subquery
             # http://www.postgresql.org/docs/9.0/static/sql-select.html#SQL-FOR-UPDATE-SHARE
@@ -67,7 +67,7 @@ module Delayed
             subquery_sql      = ready_scope.limit(1).lock(true).select("id").to_sql
             reserved          = find_by_sql(["UPDATE #{quoted_table_name} SET locked_at = ?, locked_by = ? WHERE id IN (#{subquery_sql}) RETURNING *", now, worker.name])
             reserved[0]
-          when "MySQL", "Mysql2"
+          when ['MySQL', 'Mysql2'].include?(self.connection.adapter_name)
             # Removing the millisecond precision from now(time object)
             # MySQL 5.6.4 onwards millisecond precision exists, but the
             # datetime object created doesn't have precision, so discarded
@@ -79,7 +79,7 @@ module Delayed
             count = ready_scope.limit(1).update_all(locked_at: now, locked_by: worker.name)
             return nil if count == 0
             where(locked_at: now, locked_by: worker.name, failed_at: nil).first
-          when "MSSQL", "Teradata"
+          when ['MSSQL', 'Teradata'].include?(self.connection.adapter_name)
             # The MSSQL driver doesn't generate a limit clause when update_all
             # is called directly
             subsubquery_sql = ready_scope.limit(1).to_sql
